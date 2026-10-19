@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Math Buddy",
+    "slug": "math-buddy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "mathbuddy",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mathbuddy.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Math Buddy uses the camera to photograph a maths question from a book, worksheet, or screen.",
+        "NSPhotoLibraryUsageDescription": "Math Buddy uses your photos so you can choose an existing picture of a maths question."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F4F0E6",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.mathbuddy.app",
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Math Buddy uses your photos so you can choose an existing picture of a maths question.",
+          "cameraPermission": "Math Buddy uses the camera to photograph a maths question from a book, worksheet, or screen.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-secure-store"
+    ]
+  }
+}
