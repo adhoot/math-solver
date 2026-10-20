@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { PhotoCrop } from "@/components/photo-crop"
+import { SolveHistoryDialog } from "@/components/solve-history-dialog"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -27,6 +28,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { COURSES, courseLabel, type CourseId } from "@/lib/course"
+import { listSolves, saveFollowUps, saveSolve, type SavedSolve } from "@/lib/solve-history"
 import type { SolveSuccess, VisionStatus } from "@/lib/vision"
 
 type Failure = {
@@ -84,6 +86,10 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
   const [cameraOn, setCameraOn] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [preparing, setPreparing] = useState(false)
+  const [historyId, setHistoryId] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyEntries, setHistoryEntries] = useState<SavedSolve[]>([])
+  const [historyNote, setHistoryNote] = useState<string | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -101,6 +107,16 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop())
       if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void listSolves().then((entries) => {
+      if (!cancelled) setHistoryEntries(entries)
+    })
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -124,6 +140,8 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     setReplies([])
     setFollowUpError(null)
     setAsking(false)
+    setHistoryId(null)
+    setHistoryNote(null)
     setFailure(null)
     setPhase("crop")
   }
@@ -321,6 +339,30 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
       }
       setResult(payload as SolveSuccess)
       setPhase("result")
+      const solvedQuestions =
+        solveMode === "one"
+          ? [questions[chosenIndex]].filter((question): question is string => Boolean(question))
+          : questions
+      try {
+        const saved = await saveSolve({
+          course: submittedCourse,
+          image: photo.file,
+          questions,
+          solveMode,
+          chosenIndex,
+          solvedQuestions,
+          solutions: (payload as SolveSuccess).solutions,
+          replies: [],
+          provider: (payload as SolveSuccess).provider,
+          model: (payload as SolveSuccess).model,
+        })
+        setHistoryId(saved.id)
+        setHistoryEntries(await listSolves())
+        setHistoryNote(null)
+      } catch {
+        setHistoryId(null)
+        setHistoryNote("This solve could not be saved on this device.")
+      }
     } catch {
       setFailure({
         code: "model_error",
@@ -360,8 +402,18 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
         })
         return
       }
-      setReplies((current) => [...current, reply.trim()])
+      const nextReplies = [...replies, reply.trim()]
+      setReplies(nextReplies)
       setFollowUp("")
+      if (historyId) {
+        try {
+          await saveFollowUps(historyId, nextReplies)
+          setHistoryEntries(await listSolves())
+          setHistoryNote(null)
+        } catch {
+          setHistoryNote("The follow-up could not be saved on this device.")
+        }
+      }
     } catch {
       setFollowUpError({
         code: "model_error",
@@ -370,6 +422,37 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     } finally {
       setAsking(false)
     }
+  }
+
+  function openSaved(entry: SavedSolve) {
+    stopCamera()
+    if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current)
+    const url = URL.createObjectURL(entry.image)
+    photoUrlRef.current = url
+    setPhoto({
+      file: new File([entry.image], "question.jpg", {
+        type: entry.image.type || "image/jpeg",
+      }),
+      url,
+    })
+    setCourse(entry.course)
+    setQuestions(entry.questions)
+    setSolveMode(entry.solveMode)
+    setChosenIndex(entry.chosenIndex)
+    setResult({
+      course: entry.course,
+      solutions: entry.solutions,
+      provider: entry.provider as SolveSuccess["provider"],
+      model: entry.model,
+    })
+    setReplies(entry.replies)
+    setFollowUp("")
+    setFollowUpError(null)
+    setFailure(null)
+    setHistoryId(entry.id)
+    setHistoryNote(null)
+    setHistoryOpen(false)
+    setPhase("result")
   }
 
   const selectedCourse = courseLabel(course)
@@ -396,6 +479,14 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11"
+              onClick={() => setHistoryOpen(true)}
+            >
+              History
+            </Button>
             <Label htmlFor="course">Course</Label>
             <Select
               value={course}
@@ -420,6 +511,12 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
           </div>
         </div>
       </header>
+      <SolveHistoryDialog
+        open={historyOpen}
+        entries={historyEntries}
+        onClose={() => setHistoryOpen(false)}
+        onOpen={openSaved}
+      />
 
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 pt-28 pb-16">
         <p id="course-hint" className="max-w-2xl text-base leading-relaxed text-muted-foreground">
@@ -743,6 +840,18 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                   <p className="text-sm font-semibold tracking-wide text-primary uppercase">
                     {courseLabel(result.course)}
                   </p>
+                  {historyId ? (
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {solveMode === "all"
+                        ? `All ${questions.length} questions in this crop were solved.`
+                        : `Solved question ${chosenIndex + 1} of ${questions.length}.`}
+                    </p>
+                  ) : null}
+                  {historyNote ? (
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {historyNote}
+                    </p>
+                  ) : null}
                   {result.solutions.map((solution, solutionIndex) => (
                     <div key={`${solutionIndex}-${solution.question.slice(0, 24)}`} className="flex flex-col gap-4">
                       {solution.question ? (
