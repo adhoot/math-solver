@@ -18,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PhotoCrop } from "@/components/photo-crop"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -33,7 +34,8 @@ type Failure = {
   code: "missing_key" | "bad_request" | "model_error" | "camera"
 }
 
-type Phase = "idle" | "loading" | "result" | "error"
+type Phase = "idle" | "crop" | "reading" | "choose" | "loading" | "result" | "error"
+type SolveMode = "all" | "one"
 
 const FAILURE_TITLES: Record<Failure["code"], string> = {
   missing_key: "No vision model key",
@@ -69,6 +71,9 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
   const [course, setCourse] = useState<CourseId>("algebra-1")
   const [status] = useState(initialStatus)
   const [photo, setPhoto] = useState<{ file: File; url: string } | null>(null)
+  const [questions, setQuestions] = useState<string[]>([])
+  const [solveMode, setSolveMode] = useState<SolveMode>("all")
+  const [chosenIndex, setChosenIndex] = useState(0)
   const [phase, setPhase] = useState<Phase>("idle")
   const [result, setResult] = useState<SolveSuccess | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
@@ -107,9 +112,12 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     const url = URL.createObjectURL(file)
     photoUrlRef.current = url
     setPhoto({ file, url })
+    setQuestions([])
+    setSolveMode("all")
+    setChosenIndex(0)
     setResult(null)
     setFailure(null)
-    setPhase("idle")
+    setPhase("crop")
   }
 
   async function acceptFile(file: File) {
@@ -204,15 +212,83 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     const next = COURSES.find((item) => item.id === value)
     if (!next) return
     setCourse(next.id)
-    if (phase !== "loading") {
-      setResult(null)
-      setFailure(null)
-      setPhase("idle")
+    if (phase === "loading" || phase === "reading") return
+    setResult(null)
+    setFailure(null)
+    if (questions.length > 0) setPhase("choose")
+  }
+
+  function readFailure(payload: unknown, responseOk: boolean) {
+    if (responseOk) return null
+    const record =
+      payload && typeof payload === "object"
+        ? (payload as { error?: unknown; code?: unknown })
+        : {}
+    const code =
+      record.code === "missing_key" ||
+      record.code === "bad_request" ||
+      record.code === "model_error"
+        ? record.code
+        : "model_error"
+    return {
+      code,
+      error:
+        typeof record.error === "string"
+          ? record.error
+          : "Math Buddy couldn't finish that request.",
+    } satisfies Failure
+  }
+
+  async function readCrop(file: File) {
+    setPhase("reading")
+    setFailure(null)
+    setResult(null)
+    setQuestions([])
+    try {
+      const body = new FormData()
+      body.set("image", file)
+      const response = await fetch("/api/questions", { method: "POST", body })
+      const payload: unknown = await response.json().catch(() => null)
+      const failure = readFailure(payload, response.ok)
+      if (failure) {
+        setFailure(failure)
+        setPhase("error")
+        return
+      }
+      const found =
+        payload &&
+        typeof payload === "object" &&
+        Array.isArray((payload as { questions?: unknown }).questions)
+          ? (payload as { questions: unknown[] }).questions.filter(
+              (question): question is string =>
+                typeof question === "string" && question.trim().length > 0,
+            )
+          : []
+      if (found.length === 0) {
+        setFailure({
+          code: "bad_request",
+          error:
+            "No maths questions were readable in that crop. Move the box or try another photo.",
+        })
+        setPhase("error")
+        return
+      }
+      setQuestions(found.map((question) => question.trim()))
+      setChosenIndex(0)
+      setSolveMode("all")
+      setPhase("choose")
+    } catch {
+      setFailure({
+        code: "model_error",
+        error: "The request stopped before the questions came back. Try again.",
+      })
+      setPhase("error")
     }
   }
 
   async function solve() {
-    if (!photo || phase === "loading") return
+    if (!photo || phase === "loading" || questions.length === 0) return
+    if (solveMode === "one" && !questions[chosenIndex]) return
     const submittedCourse = course
     setPhase("loading")
     setFailure(null)
@@ -221,26 +297,14 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
       const body = new FormData()
       body.set("image", photo.file)
       body.set("course", submittedCourse)
+      body.set("solveMode", solveMode)
+      body.set("questions", JSON.stringify(questions))
+      if (solveMode === "one") body.set("question", questions[chosenIndex])
       const response = await fetch("/api/solve", { method: "POST", body })
       const payload: unknown = await response.json().catch(() => null)
-      if (!response.ok) {
-        const record =
-          payload && typeof payload === "object"
-            ? (payload as { error?: unknown; code?: unknown })
-            : {}
-        const code =
-          record.code === "missing_key" ||
-          record.code === "bad_request" ||
-          record.code === "model_error"
-            ? record.code
-            : "model_error"
-        setFailure({
-          code,
-          error:
-            typeof record.error === "string"
-              ? record.error
-              : "Math Buddy couldn't solve that photo.",
-        })
+      const failure = readFailure(payload, response.ok)
+      if (failure) {
+        setFailure(failure)
         setPhase("error")
         return
       }
@@ -256,7 +320,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
   }
 
   const selectedCourse = courseLabel(course)
-  const busy = phase === "loading" || preparing
+  const busy = phase === "loading" || phase === "reading" || preparing
 
   return (
     <div className="min-h-full bg-[radial-gradient(ellipse_at_top,var(--color-accent),transparent_55%)]">
@@ -388,12 +452,24 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                       : "border-border bg-muted/40"
                   }`}
                 >
-                  {photo ? (
-                    // The preview is a local object URL of the user's photo.
+                  {photo && phase === "crop" ? (
+                    <PhotoCrop
+                      url={photo.url}
+                      busy={busy}
+                      onUse={(file) => {
+                        if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current)
+                        const url = URL.createObjectURL(file)
+                        photoUrlRef.current = url
+                        setPhoto({ file, url })
+                        void readCrop(file)
+                      }}
+                    />
+                  ) : photo ? (
+                    // The preview is a local object URL of the cropped photo.
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={photo.url}
-                      alt="The question you are about to solve"
+                      alt="The cropped photo whose questions will be solved"
                       className="max-h-72 w-full rounded-lg object-contain"
                     />
                   ) : (
@@ -469,22 +545,87 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                 }}
               />
 
-              <Button
-                type="button"
-                size="lg"
-                className="h-11 text-base"
-                onClick={() => void solve()}
-                disabled={!photo || busy}
-              >
-                {phase === "loading" ? (
-                  <>
-                    <Loader2 className="animate-spin" />
-                    Solving for {selectedCourse}
-                  </>
-                ) : (
-                  <>Solve for {selectedCourse}</>
-                )}
-              </Button>
+              {phase === "choose" ? (
+                <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-3">
+                  <legend className="px-1 text-sm font-semibold">
+                    Which questions should be solved?
+                  </legend>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="solve-mode"
+                      checked={solveMode === "all"}
+                      onChange={() => setSolveMode("all")}
+                    />
+                    Solve all {questions.length}
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="solve-mode"
+                      checked={solveMode === "one"}
+                      onChange={() => setSolveMode("one")}
+                    />
+                    Solve one question
+                  </label>
+                  <Select
+                    value={String(chosenIndex)}
+                    onValueChange={(value) => setChosenIndex(Number(value))}
+                    disabled={solveMode !== "one"}
+                  >
+                    <SelectTrigger
+                      aria-label="Question to solve"
+                      className="h-11 w-full text-sm"
+                    >
+                      <span data-slot="select-value">
+                        {questions[chosenIndex] || "Choose a question"}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent position="popper" className="max-h-80">
+                      {questions.map((question, index) => (
+                        <SelectItem key={`${index}-${question.slice(0, 24)}`} value={String(index)}>
+                          {question}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </fieldset>
+              ) : null}
+
+              {phase === "choose" || phase === "loading" ? (
+                <Button
+                  type="button"
+                  size="lg"
+                  className="h-11 text-base"
+                  onClick={() => void solve()}
+                  disabled={!photo || questions.length === 0 || busy || (solveMode === "one" && !questions[chosenIndex])}
+                >
+                  {phase === "loading" ? (
+                    <>
+                      <Loader2 className="animate-spin" />
+                      Solving for {selectedCourse}
+                    </>
+                  ) : (
+                    <>Solve for {selectedCourse}</>
+                  )}
+                </Button>
+              ) : null}
+              {photo && phase !== "crop" && phase !== "reading" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  className="h-11 text-base"
+                  disabled={busy}
+                  onClick={() => {
+                    setFailure(null)
+                    setResult(null)
+                    setPhase("crop")
+                  }}
+                >
+                  Crop again
+                </Button>
+              ) : null}
               {preparing ? (
                 <p className="text-sm text-muted-foreground">
                   Preparing the photo…
@@ -501,7 +642,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              {phase === "loading" ? (
+              {phase === "reading" || phase === "loading" ? (
                 <div
                   role="status"
                   aria-live="polite"
@@ -509,8 +650,9 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                 >
                   <Loader2 className="size-6 animate-spin text-primary" />
                   <p className="text-base leading-relaxed">
-                    Reading the question and writing the steps for{" "}
-                    {selectedCourse}.
+                    {phase === "reading"
+                      ? "Reading every question in the crop. Not solving yet."
+                      : `Writing the steps for ${selectedCourse}.`}
                   </p>
                 </div>
               ) : null}
@@ -529,7 +671,14 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                   variant="outline"
                   size="lg"
                   className="h-11 text-base"
-                  onClick={() => void solve()}
+                  onClick={() => {
+                    setFailure(null)
+                    if (questions.length > 0) {
+                      setPhase("choose")
+                      return
+                    }
+                    setPhase("crop")
+                  }}
                 >
                   <RotateCcw />
                   Try again
@@ -537,52 +686,69 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
               ) : null}
 
               {phase === "result" && result ? (
-                <div className="flex flex-col gap-5">
+                <div className="flex flex-col gap-8">
                   <p className="text-sm font-semibold tracking-wide text-primary uppercase">
                     {courseLabel(result.course)}
                   </p>
-                  {result.question ? (
-                    <div className="flex flex-col gap-1">
-                      <p className="text-sm font-semibold text-muted-foreground">
-                        From the photo
-                      </p>
-                      <p className="leading-relaxed">{result.question}</p>
+                  {result.solutions.map((solution, solutionIndex) => (
+                    <div key={`${solutionIndex}-${solution.question.slice(0, 24)}`} className="flex flex-col gap-4">
+                      {solution.question ? (
+                        <div className="flex flex-col gap-1">
+                          <p className="text-sm font-semibold text-muted-foreground">
+                            {result.solutions.length > 1
+                              ? `Question ${solutionIndex + 1}`
+                              : "From the photo"}
+                          </p>
+                          <p className="leading-relaxed">{solution.question}</p>
+                        </div>
+                      ) : null}
+                      <div className="rounded-xl bg-accent px-4 py-3">
+                        <p className="text-sm font-semibold text-muted-foreground">
+                          Answer
+                        </p>
+                        <p className="font-heading text-2xl leading-snug text-foreground">
+                          {solution.answer}
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        <p className="text-sm font-semibold text-muted-foreground">
+                          How to get there
+                        </p>
+                        {solution.steps.length > 0 ? (
+                          <ol className="flex flex-col gap-3">
+                            {solution.steps.map((step, index) => (
+                              <li key={`${index}-${step.slice(0, 24)}`} className="flex gap-3">
+                                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+                                  {index + 1}
+                                </span>
+                                <p className="pt-0.5 leading-relaxed">{step}</p>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <p className="leading-relaxed text-muted-foreground">
+                            The model gave an answer without listing steps.
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  ) : null}
-                  <div className="rounded-xl bg-accent px-4 py-3">
-                    <p className="text-sm font-semibold text-muted-foreground">
-                      Answer
-                    </p>
-                    <p className="font-heading text-2xl leading-snug text-foreground">
-                      {result.answer}
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    <p className="text-sm font-semibold text-muted-foreground">
-                      How to get there
-                    </p>
-                    {result.steps.length > 0 ? (
-                      <ol className="flex flex-col gap-3">
-                        {result.steps.map((step, index) => (
-                          <li key={`${index}-${step.slice(0, 24)}`} className="flex gap-3">
-                            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                              {index + 1}
-                            </span>
-                            <p className="pt-0.5 leading-relaxed">{step}</p>
-                          </li>
-                        ))}
-                      </ol>
-                    ) : (
-                      <p className="leading-relaxed text-muted-foreground">
-                        The model gave an answer without listing steps. Try the
-                        photo again if you want the working.
-                      </p>
-                    )}
-                  </div>
+                  ))}
                 </div>
               ) : null}
 
-              {phase === "idle" ? (
+              {phase === "choose" ? (
+                <div className="flex min-h-52 flex-col justify-center gap-2">
+                  <p className="font-heading text-xl leading-snug">
+                    {questions.length} question{questions.length === 1 ? "" : "s"} found.
+                  </p>
+                  <p className="max-w-md leading-relaxed text-muted-foreground">
+                    Solve all of them, or pick one from the list. The working
+                    stays inside {selectedCourse}.
+                  </p>
+                </div>
+              ) : null}
+
+              {phase === "idle" || phase === "crop" ? (
                 <div className="flex min-h-52 flex-col justify-center gap-2">
                   <p className="font-heading text-xl leading-snug">
                     Nothing solved yet.
