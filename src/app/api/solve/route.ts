@@ -1,4 +1,4 @@
-import { parseClassLevel } from "@/lib/class-level"
+import { parseCourse } from "@/lib/course"
 import {
   MISSING_KEY_MESSAGE,
   solveFromImage,
@@ -43,12 +43,12 @@ export async function POST(request: Request) {
     )
   }
 
-  const classLevel = parseClassLevel(formData.get("classLevel"))
-  if (!classLevel) {
+  const course = parseCourse(formData.get("course"))
+  if (!course) {
     return jsonError(
       400,
       "bad_request",
-      "Choose a class from 1 to 12 before solving.",
+      "Choose a math course before solving.",
     )
   }
 
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
 
   try {
     const bytes = Buffer.from(await image.arrayBuffer())
-    const result = await solveFromImage({ classLevel, mimeType, bytes })
+    const result = await solveFromImage({ course, mimeType, bytes })
     return Response.json(result)
   } catch (error) {
     const message =

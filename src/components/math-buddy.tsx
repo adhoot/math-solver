@@ -25,7 +25,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
-import { CLASS_LEVELS, type ClassLevel } from "@/lib/class-level"
+import { COURSES, courseLabel, type CourseId } from "@/lib/course"
 import type { SolveSuccess, VisionStatus } from "@/lib/vision"
 
 type Failure = {
@@ -66,7 +66,7 @@ async function fileToJpeg(file: File): Promise<File> {
 }
 
 export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
-  const [classLevel, setClassLevel] = useState<string>("6")
+  const [course, setCourse] = useState<CourseId>("algebra-1")
   const [status] = useState(initialStatus)
   const [photo, setPhoto] = useState<{ file: File; url: string } | null>(null)
   const [phase, setPhase] = useState<Phase>("idle")
@@ -200,8 +200,10 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     }, "image/jpeg", 0.92)
   }
 
-  function onClassChange(value: string) {
-    setClassLevel(value)
+  function onCourseChange(value: string) {
+    const next = COURSES.find((item) => item.id === value)
+    if (!next) return
+    setCourse(next.id)
     if (phase !== "loading") {
       setResult(null)
       setFailure(null)
@@ -211,14 +213,14 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
 
   async function solve() {
     if (!photo || phase === "loading") return
-    const submittedClass = classLevel
+    const submittedCourse = course
     setPhase("loading")
     setFailure(null)
     setResult(null)
     try {
       const body = new FormData()
       body.set("image", photo.file)
-      body.set("classLevel", submittedClass)
+      body.set("course", submittedCourse)
       const response = await fetch("/api/solve", { method: "POST", body })
       const payload: unknown = await response.json().catch(() => null)
       if (!response.ok) {
@@ -253,13 +255,13 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     }
   }
 
-  const selectedClass = Number(classLevel) as ClassLevel
+  const selectedCourse = courseLabel(course)
   const busy = phase === "loading" || preparing
 
   return (
     <div className="min-h-full bg-[radial-gradient(ellipse_at_top,var(--color-accent),transparent_55%)]">
       <header className="fixed inset-x-0 top-0 z-40 border-b border-border bg-background/95 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-3 px-4">
+        <div className="mx-auto flex min-h-16 max-w-5xl items-center justify-between gap-3 px-4 py-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <span
               aria-hidden
@@ -277,23 +279,23 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Label htmlFor="class-level">Class</Label>
+            <Label htmlFor="course">Course</Label>
             <Select
-              value={classLevel}
-              onValueChange={onClassChange}
+              value={course}
+              onValueChange={onCourseChange}
               disabled={phase === "loading"}
             >
               <SelectTrigger
-                id="class-level"
-                aria-describedby="class-hint"
-                className="h-11 min-w-[8.75rem] text-base"
+                id="course"
+                aria-describedby="course-hint"
+                className="h-11 w-[11.5rem] text-sm sm:w-[16.5rem] sm:text-base"
               >
-                <span data-slot="select-value">Class {classLevel}</span>
+                <span data-slot="select-value">{selectedCourse}</span>
               </SelectTrigger>
               <SelectContent position="popper" align="end" className="max-h-80">
-                {CLASS_LEVELS.map((level) => (
-                  <SelectItem key={level} value={String(level)}>
-                    Class {level}
+                {COURSES.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -302,11 +304,11 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 pt-24 pb-16">
-        <p id="class-hint" className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-          Snap a question from a book, a worksheet, or a screen. Class {selectedClass}{" "}
-          sets the voice: shorter steps and simpler words for younger classes, fuller
-          reasoning from Class 9 up.
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 pt-28 pb-16">
+        <p id="course-hint" className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+          Snap a question from a book, a worksheet, or a screen. {selectedCourse}{" "}
+          sets the ceiling: the solution uses only ideas taught up through that
+          course. Earlier courses get shorter steps and simpler words.
         </p>
 
         {!status.ready ? (
@@ -477,10 +479,10 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                 {phase === "loading" ? (
                   <>
                     <Loader2 className="animate-spin" />
-                    Solving for Class {selectedClass}
+                    Solving for {selectedCourse}
                   </>
                 ) : (
-                  <>Solve for Class {selectedClass}</>
+                  <>Solve for {selectedCourse}</>
                 )}
               </Button>
               {preparing ? (
@@ -495,7 +497,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
             <CardHeader>
               <CardTitle>The working</CardTitle>
               <CardDescription>
-                Written for the class selected at the top.
+                Written for the course selected at the top.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -507,8 +509,8 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                 >
                   <Loader2 className="size-6 animate-spin text-primary" />
                   <p className="text-base leading-relaxed">
-                    Reading the question and writing the steps for Class{" "}
-                    {selectedClass}.
+                    Reading the question and writing the steps for{" "}
+                    {selectedCourse}.
                   </p>
                 </div>
               ) : null}
@@ -537,7 +539,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
               {phase === "result" && result ? (
                 <div className="flex flex-col gap-5">
                   <p className="text-sm font-semibold tracking-wide text-primary uppercase">
-                    Class {result.classLevel}
+                    {courseLabel(result.course)}
                   </p>
                   {result.question ? (
                     <div className="flex flex-col gap-1">
@@ -587,7 +589,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                   </p>
                   <p className="max-w-md leading-relaxed text-muted-foreground">
                     When you send a photo, the answer and the working land here,
-                    written the way Class {selectedClass} would read it.
+                    using only ideas taught up through {selectedCourse}.
                   </p>
                 </div>
               ) : null}
