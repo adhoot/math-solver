@@ -390,3 +390,73 @@ export async function solveFromImage(input: {
     model: provider.model,
   }
 }
+
+function followUpPrompt(
+  course: CourseId,
+  solved: SolvedQuestion[],
+  previousReplies: string[],
+  followUp: string,
+): string {
+  const label = courseLabel(course)
+  const given = solved
+    .map((solution, index) =>
+      [
+        `Question ${index + 1}: ${solution.question || "The question in the picture"}`,
+        `Answer already given: ${solution.answer}`,
+        solution.steps.length
+          ? `Steps already given: ${solution.steps.join(" ")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    )
+    .join("\n\n")
+  const earlier = previousReplies
+    .map((reply, index) => `Follow-up reply ${index + 1}: ${reply}`)
+    .join("\n")
+  return [
+    "You are Math Buddy, a patient maths tutor.",
+    `The student is taking ${label}.`,
+    courseGuidance(course),
+    "The picture, the questions that were solved, and the answer already given are the context.",
+    "Answer the student's follow-up. Do not start a new problem unless they ask for one.",
+    `Stay inside ${label}. Do not use a technique from a later course.`,
+    "If the follow-up needs later mathematics, say so, name that later course, and answer only as far as this course allows.",
+    given,
+    earlier,
+    `Follow-up: ${followUp}`,
+    "Return only a JSON object with this shape and no markdown:",
+    '{"reply":"the answer to the follow-up"}',
+  ]
+    .filter(Boolean)
+    .join("\n")
+}
+
+export async function answerFollowUp(input: {
+  course: CourseId
+  solved: SolvedQuestion[]
+  previousReplies: string[]
+  followUp: string
+  mimeType: string
+  bytes: Buffer
+}): Promise<string> {
+  const provider = activeProvider()
+  if (!provider) throw new Error(MISSING_KEY_MESSAGE)
+  const raw = await askVision(
+    provider,
+    followUpPrompt(
+      input.course,
+      input.solved,
+      input.previousReplies,
+      input.followUp,
+    ),
+    `Answer this follow-up inside ${courseLabel(input.course)}. Reply with the JSON object only.`,
+    input.mimeType,
+    input.bytes,
+  )
+  const record = parseJsonObject(raw)
+  if (typeof record.reply !== "string" || !record.reply.trim()) {
+    throw new Error("The model did not answer the follow-up.")
+  }
+  return record.reply.trim()
+}
