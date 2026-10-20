@@ -76,6 +76,10 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
   const [chosenIndex, setChosenIndex] = useState(0)
   const [phase, setPhase] = useState<Phase>("idle")
   const [result, setResult] = useState<SolveSuccess | null>(null)
+  const [followUp, setFollowUp] = useState("")
+  const [replies, setReplies] = useState<string[]>([])
+  const [asking, setAsking] = useState(false)
+  const [followUpError, setFollowUpError] = useState<Failure | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
   const [cameraOn, setCameraOn] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -116,6 +120,10 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     setSolveMode("all")
     setChosenIndex(0)
     setResult(null)
+    setFollowUp("")
+    setReplies([])
+    setFollowUpError(null)
+    setAsking(false)
     setFailure(null)
     setPhase("crop")
   }
@@ -293,6 +301,9 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     setPhase("loading")
     setFailure(null)
     setResult(null)
+    setReplies([])
+    setFollowUp("")
+    setFollowUpError(null)
     try {
       const body = new FormData()
       body.set("image", photo.file)
@@ -319,8 +330,50 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     }
   }
 
+  async function askFollowUp() {
+    if (!photo || !result || asking || !followUp.trim()) return
+    const question = followUp.trim()
+    setAsking(true)
+    setFollowUpError(null)
+    try {
+      const body = new FormData()
+      body.set("image", photo.file)
+      body.set("course", result.course)
+      body.set("solved", JSON.stringify(result.solutions))
+      body.set("previousReplies", JSON.stringify(replies))
+      body.set("followUp", question)
+      const response = await fetch("/api/follow-up", { method: "POST", body })
+      const payload: unknown = await response.json().catch(() => null)
+      const failure = readFailure(payload, response.ok)
+      if (failure) {
+        setFollowUpError(failure)
+        return
+      }
+      const reply =
+        payload && typeof payload === "object"
+          ? (payload as { reply?: unknown }).reply
+          : undefined
+      if (typeof reply !== "string" || !reply.trim()) {
+        setFollowUpError({
+          code: "model_error",
+          error: "The model did not answer that follow-up.",
+        })
+        return
+      }
+      setReplies((current) => [...current, reply.trim()])
+      setFollowUp("")
+    } catch {
+      setFollowUpError({
+        code: "model_error",
+        error: "The request stopped before the follow-up came back. Try again.",
+      })
+    } finally {
+      setAsking(false)
+    }
+  }
+
   const selectedCourse = courseLabel(course)
-  const busy = phase === "loading" || phase === "reading" || preparing
+  const busy = phase === "loading" || phase === "reading" || preparing || asking
 
   return (
     <div className="min-h-full bg-[radial-gradient(ellipse_at_top,var(--color-accent),transparent_55%)]">
@@ -733,6 +786,53 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                       </div>
                     </div>
                   ))}
+                  <form
+                    className="flex flex-col gap-3 border-t border-border pt-5"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void askFollowUp()
+                    }}
+                  >
+                    <Label htmlFor="follow-up">Ask a follow-up</Label>
+                    <textarea
+                      id="follow-up"
+                      value={followUp}
+                      onChange={(event) => setFollowUp(event.target.value)}
+                      rows={3}
+                      placeholder="Ask about a step, a word, or why this works."
+                      className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-base leading-relaxed outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                    />
+                    <Button
+                      type="submit"
+                      size="lg"
+                      className="h-11 self-start text-base"
+                      disabled={asking || !followUp.trim()}
+                    >
+                      {asking ? (
+                        <>
+                          <Loader2 className="animate-spin" />
+                          Answering inside {courseLabel(result.course)}
+                        </>
+                      ) : (
+                        "Ask"
+                      )}
+                    </Button>
+                    {followUpError ? (
+                      <Alert variant="destructive">
+                        <CircleAlert />
+                        <AlertTitle>{FAILURE_TITLES[followUpError.code]}</AlertTitle>
+                        <AlertDescription>{followUpError.error}</AlertDescription>
+                      </Alert>
+                    ) : null}
+                    {replies.map((reply, index) => (
+                      <div key={`${index}-${reply.slice(0, 24)}`} className="flex flex-col gap-1">
+                        <p className="text-sm font-semibold text-muted-foreground">
+                          Follow-up {index + 1}
+                        </p>
+                        <p className="leading-relaxed">{reply}</p>
+                      </div>
+                    ))}
+                  </form>
                 </div>
               ) : null}
 
