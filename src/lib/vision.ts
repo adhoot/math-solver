@@ -1,4 +1,4 @@
-import { classGuidance, type ClassLevel } from "@/lib/class-level"
+import { courseGuidance, courseLabel, type CourseId } from "@/lib/course"
 
 export const MISSING_KEY_MESSAGE =
   "Math Buddy has no vision model key yet. Set OPENAI_API_KEY, XAI_API_KEY, GROQ_API_KEY, or ANTHROPIC_API_KEY on the server, then try the photo again."
@@ -54,7 +54,7 @@ export type SolveSuccess = {
   question: string
   answer: string
   steps: string[]
-  classLevel: ClassLevel
+  course: CourseId
   provider: Provider["label"]
   model: string
 }
@@ -82,13 +82,14 @@ export function visionStatus(): VisionStatus {
   return { ready: true, provider: provider.label, model: provider.model }
 }
 
-function tutorPrompt(level: ClassLevel): string {
+function tutorPrompt(course: CourseId): string {
+  const label = courseLabel(course)
   return [
     "You are Math Buddy, a patient maths tutor.",
-    `The student is in Class ${level} of a Class 1 to Class 12 school.`,
-    classGuidance(level),
+    `The student is taking ${label}.`,
+    courseGuidance(course),
     "Read the maths question in the image. Solve it correctly.",
-    `Every word of the explanation must fit Class ${level}.`,
+    `Every word of the explanation must stay inside ${label}.`,
     "If a diagram matters, describe the facts you used from it.",
     "If the image is not a maths question, say so in the answer and explain what you saw in the steps.",
     "Return only a JSON object with this shape and no markdown:",
@@ -168,7 +169,7 @@ async function providerError(response: Response): Promise<string> {
 
 async function callOpenAICompatible(
   provider: ActiveProvider,
-  level: ClassLevel,
+  course: CourseId,
   mimeType: string,
   base64: string,
 ): Promise<string> {
@@ -184,13 +185,13 @@ async function callOpenAICompatible(
       max_tokens: 1800,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: tutorPrompt(level) },
+        { role: "system", content: tutorPrompt(course) },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `Solve this for Class ${level}. Reply with the JSON object only.`,
+              text: `Solve this for ${courseLabel(course)}. Use only ideas taught up through ${courseLabel(course)}. Reply with the JSON object only.`,
             },
             {
               type: "image_url",
@@ -225,7 +226,7 @@ async function callOpenAICompatible(
 
 async function callAnthropic(
   provider: ActiveProvider,
-  level: ClassLevel,
+  course: CourseId,
   mimeType: string,
   base64: string,
 ): Promise<string> {
@@ -239,7 +240,7 @@ async function callAnthropic(
     body: JSON.stringify({
       model: provider.model,
       max_tokens: 1800,
-      system: tutorPrompt(level),
+      system: tutorPrompt(course),
       messages: [
         {
           role: "user",
@@ -250,7 +251,7 @@ async function callAnthropic(
             },
             {
               type: "text",
-              text: `Solve this for Class ${level}. Reply with the JSON object only.`,
+              text: `Solve this for ${courseLabel(course)}. Use only ideas taught up through ${courseLabel(course)}. Reply with the JSON object only.`,
             },
           ],
         },
@@ -276,7 +277,7 @@ async function callAnthropic(
 }
 
 export async function solveFromImage(input: {
-  classLevel: ClassLevel
+  course: CourseId
   mimeType: string
   bytes: Buffer
 }): Promise<SolveSuccess> {
@@ -288,17 +289,17 @@ export async function solveFromImage(input: {
   const base64 = input.bytes.toString("base64")
   const raw =
     provider.id === "anthropic"
-      ? await callAnthropic(provider, input.classLevel, input.mimeType, base64)
+      ? await callAnthropic(provider, input.course, input.mimeType, base64)
       : await callOpenAICompatible(
           provider,
-          input.classLevel,
+          input.course,
           input.mimeType,
           base64,
         )
   const parsed = parseTutorJson(raw)
   return {
     ...parsed,
-    classLevel: input.classLevel,
+    course: input.course,
     provider: provider.label,
     model: provider.model,
   }

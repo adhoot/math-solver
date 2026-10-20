@@ -1,6 +1,6 @@
 # Math Buddy
 
-Photograph a maths question from a textbook, worksheet, or screen. Math Buddy sends the picture and a class level (Class 1 through Class 12) to a vision model, then shows a final answer and a step-by-step explanation written for that class. Younger classes get shorter steps in simpler words. Older classes get fuller reasoning.
+Photograph a maths question from a textbook, worksheet, or screen. Math Buddy sends the picture and a math course to a vision model, then shows a final answer and a step-by-step explanation that uses only ideas taught up through that course. The courses, in order, are Algebra 1, Algebra 2, Geometry, PreCalc, Calculus AB, Calculus BC, and Multivariable Calculus. Earlier courses get shorter steps and simpler words. If a problem needs a later course, the explanation says so and stops at the selected course.
 
 ## Run locally
 
@@ -11,7 +11,7 @@ npm run dev
 
 The dev server listens on [http://127.0.0.1:43123](http://127.0.0.1:43123) (`0.0.0.0:43123`).
 
-Use the camera in the page, the phone camera via **Take a photo**, or **Upload a photo** on a computer without a camera. Pick the class in the bar at the top. That level is sent with every solve.
+Use the camera in the page, the phone camera via **Take a photo**, or **Upload a photo** on a computer without a camera. Pick the course in the bar at the top. That course is sent with every solve.
 
 ## Vision model
 
