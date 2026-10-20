@@ -11,7 +11,7 @@ npm run dev
 
 The dev server listens on [http://127.0.0.1:43123](http://127.0.0.1:43123) (`0.0.0.0:43123`).
 
-Use the camera in the page, the phone camera via **Take a photo**, or **Upload a photo** on a computer without a camera. Pick the course in the bar at the top. That course is sent with every solve.
+Use the camera in the page, the phone camera via **Take a photo**, or **Upload a photo** on a computer without a camera. Crop the photo before anything else happens. Math Buddy then reads every question in the crop and waits. Choose **Solve all**, or pick one question from the list. The selected course is sent with that solve.
 
 ## Vision model
 

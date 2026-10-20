@@ -50,11 +50,19 @@ export type VisionMissing = {
 
 export type VisionStatus = VisionReady | VisionMissing
 
-export type SolveSuccess = {
+export type SolvedQuestion = {
   question: string
   answer: string
   steps: string[]
+}
+
+export type SolveSelection =
+  | { mode: "all"; questions: string[] }
+  | { mode: "one"; question: string }
+
+export type SolveSuccess = {
   course: CourseId
+  solutions: SolvedQuestion[]
   provider: Provider["label"]
   model: string
 }
@@ -82,51 +90,109 @@ export function visionStatus(): VisionStatus {
   return { ready: true, provider: provider.label, model: provider.model }
 }
 
-function tutorPrompt(course: CourseId): string {
+function selectionRules(course: CourseId, selection: SolveSelection): string {
+  const label = courseLabel(course)
+  if (selection.mode === "one") {
+    return [
+      "Solve only this question. Ignore every other question in the picture:",
+      selection.question,
+      `Stay inside ${label}.`,
+    ].join("\n")
+  }
+  const lines = selection.questions.map(
+    (question, index) => `${index + 1}. ${question}`,
+  )
+  return [
+    "Solve every question listed here, and no others. Give each question its own solution.",
+    ...lines,
+    `Stay inside ${label}.`,
+  ].join("\n")
+}
+
+function tutorPrompt(course: CourseId, selection: SolveSelection): string {
   const label = courseLabel(course)
   return [
     "You are Math Buddy, a patient maths tutor.",
     `The student is taking ${label}.`,
     courseGuidance(course),
-    "Read the maths question in the image. Solve it correctly.",
+    selectionRules(course, selection),
+    "Solve the chosen question or questions correctly.",
     `Every word of the explanation must stay inside ${label}.`,
     "If a diagram matters, describe the facts you used from it.",
     "If the image is not a maths question, say so in the answer and explain what you saw in the steps.",
     "Return only a JSON object with this shape and no markdown:",
-    '{"question":"the question in plain text","answer":"the final answer only","steps":["step 1","step 2"]}',
+    '{"solutions":[{"question":"the question in plain text","answer":"the final answer only","steps":["step 1","step 2"]}]}',
   ].join("\n")
 }
 
-export function parseTutorJson(text: string): {
-  question: string
-  answer: string
-  steps: string[]
-} {
+const QUESTION_PROMPT = [
+  "You are Math Buddy.",
+  "Read every distinct maths question visible in the image, from top to bottom.",
+  "Do not solve anything. Do not give answers, hints, or steps.",
+  "Skip page numbers, names, scores, and instructions that are not themselves questions.",
+  "Copy each question as its own plain-text item.",
+  "Return only a JSON object with this shape and no markdown:",
+  '{"questions":["question 1","question 2"]}',
+  "If the image has no maths question, return {\"questions\":[]}.",
+].join("\n")
+
+function parseQuestions(text: string): string[] {
+  const record = parseJsonObject(text)
+  if (!Array.isArray(record.questions)) {
+    throw new Error("The model did not list the questions.")
+  }
+  return record.questions
+    .map((question) => (typeof question === "string" ? question.trim() : ""))
+    .filter(Boolean)
+}
+
+function parseSolutions(text: string): SolvedQuestion[] {
+  const record = parseJsonObject(text)
+  const rawList = Array.isArray(record.solutions)
+    ? record.solutions
+    : record.answer
+      ? [record]
+      : null
+  if (!rawList) throw new Error("The model did not return the solutions.")
+  const solutions = rawList.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new Error("The model did not return the solutions.")
+    }
+    const solution = item as Record<string, unknown>
+    if (typeof solution.answer !== "string" || !solution.answer.trim()) {
+      throw new Error("The model left out the final answer.")
+    }
+    if (!Array.isArray(solution.steps)) {
+      throw new Error("The model left out the steps.")
+    }
+    const steps = solution.steps
+      .map((step) => (typeof step === "string" ? step.trim() : ""))
+      .filter(Boolean)
+    return {
+      question:
+        typeof solution.question === "string" ? solution.question.trim() : "",
+      answer: solution.answer.trim(),
+      steps,
+    }
+  })
+  if (solutions.length === 0) {
+    throw new Error("The model did not return the solutions.")
+  }
+  return solutions
+}
+
+function parseJsonObject(text: string): Record<string, unknown> {
   const trimmed = text.trim()
   const start = trimmed.indexOf("{")
   const end = trimmed.lastIndexOf("}")
   if (start === -1 || end <= start) {
-    throw new Error("The model did not return the answer as JSON.")
+    throw new Error("The model did not return JSON.")
   }
   const parsed: unknown = JSON.parse(trimmed.slice(start, end + 1))
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("The model did not return the answer as JSON.")
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("The model did not return JSON.")
   }
-  const record = parsed as Record<string, unknown>
-  if (typeof record.answer !== "string" || !record.answer.trim()) {
-    throw new Error("The model left out the final answer.")
-  }
-  if (!Array.isArray(record.steps)) {
-    throw new Error("The model left out the steps.")
-  }
-  const steps = record.steps
-    .map((step) => (typeof step === "string" ? step.trim() : ""))
-    .filter(Boolean)
-  return {
-    question: typeof record.question === "string" ? record.question.trim() : "",
-    answer: record.answer.trim(),
-    steps,
-  }
+  return parsed as Record<string, unknown>
 }
 
 function messageText(content: unknown): string {
@@ -169,7 +235,8 @@ async function providerError(response: Response): Promise<string> {
 
 async function callOpenAICompatible(
   provider: ActiveProvider,
-  course: CourseId,
+  system: string,
+  userText: string,
   mimeType: string,
   base64: string,
 ): Promise<string> {
@@ -182,17 +249,14 @@ async function callOpenAICompatible(
     body: JSON.stringify({
       model: provider.model,
       temperature: 0.2,
-      max_tokens: 1800,
+      max_tokens: 3000,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: tutorPrompt(course) },
+        { role: "system", content: system },
         {
           role: "user",
           content: [
-            {
-              type: "text",
-              text: `Solve this for ${courseLabel(course)}. Use only ideas taught up through ${courseLabel(course)}. Reply with the JSON object only.`,
-            },
+            { type: "text", text: userText },
             {
               type: "image_url",
               image_url: { url: `data:${mimeType};base64,${base64}` },
@@ -226,7 +290,8 @@ async function callOpenAICompatible(
 
 async function callAnthropic(
   provider: ActiveProvider,
-  course: CourseId,
+  system: string,
+  userText: string,
   mimeType: string,
   base64: string,
 ): Promise<string> {
@@ -239,8 +304,8 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model: provider.model,
-      max_tokens: 1800,
-      system: tutorPrompt(course),
+      max_tokens: 3000,
+      system,
       messages: [
         {
           role: "user",
@@ -249,10 +314,7 @@ async function callAnthropic(
               type: "image",
               source: { type: "base64", media_type: mimeType, data: base64 },
             },
-            {
-              type: "text",
-              text: `Solve this for ${courseLabel(course)}. Use only ideas taught up through ${courseLabel(course)}. Reply with the JSON object only.`,
-            },
+            { type: "text", text: userText },
           ],
         },
       ],
@@ -276,30 +338,54 @@ async function callAnthropic(
   return text
 }
 
+async function askVision(
+  provider: ActiveProvider,
+  system: string,
+  userText: string,
+  mimeType: string,
+  bytes: Buffer,
+): Promise<string> {
+  const base64 = bytes.toString("base64")
+  return provider.id === "anthropic"
+    ? callAnthropic(provider, system, userText, mimeType, base64)
+    : callOpenAICompatible(provider, system, userText, mimeType, base64)
+}
+
+export async function readQuestionsFromImage(input: {
+  mimeType: string
+  bytes: Buffer
+}): Promise<string[]> {
+  const provider = activeProvider()
+  if (!provider) throw new Error(MISSING_KEY_MESSAGE)
+  const raw = await askVision(
+    provider,
+    QUESTION_PROMPT,
+    "List every maths question in this picture. Do not solve them. Reply with the JSON object only.",
+    input.mimeType,
+    input.bytes,
+  )
+  return parseQuestions(raw)
+}
+
 export async function solveFromImage(input: {
   course: CourseId
+  selection: SolveSelection
   mimeType: string
   bytes: Buffer
 }): Promise<SolveSuccess> {
   const provider = activeProvider()
-  if (!provider) {
-    throw new Error(MISSING_KEY_MESSAGE)
-  }
-
-  const base64 = input.bytes.toString("base64")
-  const raw =
-    provider.id === "anthropic"
-      ? await callAnthropic(provider, input.course, input.mimeType, base64)
-      : await callOpenAICompatible(
-          provider,
-          input.course,
-          input.mimeType,
-          base64,
-        )
-  const parsed = parseTutorJson(raw)
+  if (!provider) throw new Error(MISSING_KEY_MESSAGE)
+  const label = courseLabel(input.course)
+  const raw = await askVision(
+    provider,
+    tutorPrompt(input.course, input.selection),
+    `Solve this for ${label}. Use only ideas taught up through ${label}. Reply with the JSON object only.`,
+    input.mimeType,
+    input.bytes,
+  )
   return {
-    ...parsed,
     course: input.course,
+    solutions: parseSolutions(raw),
     provider: provider.label,
     model: provider.model,
   }
