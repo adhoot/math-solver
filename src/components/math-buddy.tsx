@@ -94,7 +94,6 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const uploadRef = useRef<HTMLInputElement>(null)
-  const captureRef = useRef<HTMLInputElement>(null)
   const photoUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -181,7 +180,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
       setFailure({
         code: "camera",
         error:
-          "This browser has no camera API. Use Take a photo, or upload a picture you already have.",
+          "This browser has no camera API. Upload a photo instead.",
       })
       setPhase("error")
       return
@@ -206,7 +205,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
       setFailure({
         code: "camera",
         error:
-          "No camera opened. On a phone, use Take a photo. On a computer, upload a picture of the question.",
+          "The camera didn't open. Allow camera access, or upload a photo you already have.",
       })
       setPhase("error")
     }
@@ -542,7 +541,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
             <CardHeader>
               <CardTitle>The question</CardTitle>
               <CardDescription>
-                Use this device&apos;s camera, the phone camera app, or a photo
+                Take a picture with this device&apos;s camera, or upload a photo
                 you already have.
               </CardDescription>
             </CardHeader>
@@ -641,21 +640,10 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                   size="lg"
                   className="h-11 text-base"
                   onClick={() => void openCamera()}
-                  disabled={busy}
+                  disabled={busy || cameraOn}
                 >
                   <Camera />
-                  Use camera
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="lg"
-                  className="h-11 text-base"
-                  onClick={() => captureRef.current?.click()}
-                  disabled={busy}
-                >
-                  <Camera />
-                  Take a photo
+                  Take a picture
                 </Button>
                 <Button
                   type="button"
@@ -669,19 +657,6 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                   Upload a photo
                 </Button>
               </div>
-              <input
-                ref={captureRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="sr-only"
-                aria-label="Take a photo with the camera app"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  event.target.value = ""
-                  if (file) void acceptFile(file)
-                }}
-              />
               <input
                 ref={uploadRef}
                 type="file"
