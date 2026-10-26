@@ -1,4 +1,5 @@
 import { courseGuidance, courseLabel, type CourseId } from "@/lib/course"
+import { MATH_TUTOR_SYSTEM_PROMPT } from "@/lib/math-tutor-system-prompt"
 
 export const MISSING_KEY_MESSAGE =
   "Math Buddy has no vision model key yet. Set OPENAI_API_KEY, XAI_API_KEY, GROQ_API_KEY, or ANTHROPIC_API_KEY on the server, then try the photo again."
@@ -109,12 +110,33 @@ function selectionRules(course: CourseId, selection: SolveSelection): string {
   ].join("\n")
 }
 
-function tutorPrompt(course: CourseId, selection: SolveSelection): string {
+const COURSE_PLACEHOLDER = "{{course}}"
+
+function systemPrompt(course: CourseId): string {
+  const label = courseLabel(course)
+  if (!MATH_TUTOR_SYSTEM_PROMPT.includes(COURSE_PLACEHOLDER)) {
+    throw new Error("The tutor prompt is missing the course placeholder.")
+  }
+  const filled = MATH_TUTOR_SYSTEM_PROMPT.replaceAll(COURSE_PLACEHOLDER, label)
+  if (filled.includes(COURSE_PLACEHOLDER)) {
+    throw new Error("The selected course was not applied to the tutor prompt.")
+  }
+  return [filled.trimEnd(), courseGuidance(course)].join("\n\n")
+}
+
+const QUESTION_REQUEST = [
+  "Read every distinct maths question visible in the image, from top to bottom.",
+  "Do not solve anything. Do not give answers, hints, or steps.",
+  "Skip page numbers, names, scores, and instructions that are not themselves questions.",
+  "Copy each question as its own plain-text item.",
+  "Return only a JSON object with this shape and no markdown:",
+  '{"questions":["question 1","question 2"]}',
+  "If the image has no maths question, return {\"questions\":[]}.",
+].join("\n")
+
+function solveRequest(course: CourseId, selection: SolveSelection): string {
   const label = courseLabel(course)
   return [
-    "You are Math Buddy, a patient maths tutor.",
-    `The student is taking ${label}.`,
-    courseGuidance(course),
     selectionRules(course, selection),
     "Solve the chosen question or questions correctly.",
     `Every word of the explanation must stay inside ${label}.`,
@@ -124,17 +146,6 @@ function tutorPrompt(course: CourseId, selection: SolveSelection): string {
     '{"solutions":[{"question":"the question in plain text","answer":"the final answer only","steps":["step 1","step 2"]}]}',
   ].join("\n")
 }
-
-const QUESTION_PROMPT = [
-  "You are Math Buddy.",
-  "Read every distinct maths question visible in the image, from top to bottom.",
-  "Do not solve anything. Do not give answers, hints, or steps.",
-  "Skip page numbers, names, scores, and instructions that are not themselves questions.",
-  "Copy each question as its own plain-text item.",
-  "Return only a JSON object with this shape and no markdown:",
-  '{"questions":["question 1","question 2"]}',
-  "If the image has no maths question, return {\"questions\":[]}.",
-].join("\n")
 
 function parseQuestions(text: string): string[] {
   const record = parseJsonObject(text)
@@ -352,6 +363,7 @@ async function askVision(
 }
 
 export async function readQuestionsFromImage(input: {
+  course: CourseId
   mimeType: string
   bytes: Buffer
 }): Promise<string[]> {
@@ -359,8 +371,8 @@ export async function readQuestionsFromImage(input: {
   if (!provider) throw new Error(MISSING_KEY_MESSAGE)
   const raw = await askVision(
     provider,
-    QUESTION_PROMPT,
-    "List every maths question in this picture. Do not solve them. Reply with the JSON object only.",
+    systemPrompt(input.course),
+    QUESTION_REQUEST,
     input.mimeType,
     input.bytes,
   )
@@ -375,11 +387,10 @@ export async function solveFromImage(input: {
 }): Promise<SolveSuccess> {
   const provider = activeProvider()
   if (!provider) throw new Error(MISSING_KEY_MESSAGE)
-  const label = courseLabel(input.course)
   const raw = await askVision(
     provider,
-    tutorPrompt(input.course, input.selection),
-    `Solve this for ${label}. Use only ideas taught up through ${label}. Reply with the JSON object only.`,
+    systemPrompt(input.course),
+    solveRequest(input.course, input.selection),
     input.mimeType,
     input.bytes,
   )
@@ -415,9 +426,6 @@ function followUpPrompt(
     .map((reply, index) => `Follow-up reply ${index + 1}: ${reply}`)
     .join("\n")
   return [
-    "You are Math Buddy, a patient maths tutor.",
-    `The student is taking ${label}.`,
-    courseGuidance(course),
     "The picture, the questions that were solved, and the answer already given are the context.",
     "Answer the student's follow-up. Do not start a new problem unless they ask for one.",
     `Stay inside ${label}. Do not use a technique from a later course.`,
@@ -444,13 +452,13 @@ export async function answerFollowUp(input: {
   if (!provider) throw new Error(MISSING_KEY_MESSAGE)
   const raw = await askVision(
     provider,
+    systemPrompt(input.course),
     followUpPrompt(
       input.course,
       input.solved,
       input.previousReplies,
       input.followUp,
     ),
-    `Answer this follow-up inside ${courseLabel(input.course)}. Reply with the JSON object only.`,
     input.mimeType,
     input.bytes,
   )

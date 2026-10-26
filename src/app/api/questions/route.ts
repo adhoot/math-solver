@@ -1,3 +1,4 @@
+import { parseCourse } from "@/lib/course"
 import { readUploadedImage } from "@/lib/uploaded-image"
 import {
   MISSING_KEY_MESSAGE,
@@ -32,12 +33,21 @@ export async function POST(request: Request) {
   const uploaded = await readUploadedImage(formData)
   if (!uploaded.ok) return jsonError(400, "bad_request", uploaded.error)
 
+  const course = parseCourse(formData.get("course"))
+  if (!course) {
+    return jsonError(400, "bad_request", "Choose a math course before reading the photo.")
+  }
+
   if (!visionStatus().ready) {
     return jsonError(503, "missing_key", MISSING_KEY_MESSAGE)
   }
 
   try {
-    const questions = await readQuestionsFromImage(uploaded.image)
+    const questions = await readQuestionsFromImage({
+      course,
+      mimeType: uploaded.image.mimeType,
+      bytes: uploaded.image.bytes,
+    })
     return Response.json({ questions })
   } catch (error) {
     const message =

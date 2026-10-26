@@ -272,6 +272,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     try {
       const body = new FormData()
       body.set("image", file)
+      body.set("course", course)
       const response = await fetch("/api/questions", { method: "POST", body })
       const payload: unknown = await response.json().catch(() => null)
       const failure = readFailure(payload, response.ok)
