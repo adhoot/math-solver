@@ -128,3 +128,38 @@
     @apply font-sans;
   }
 }
+
+.math-copy .katex {
+  color: inherit;
+}
+
+.math-copy .katex-display {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.math-copy p + p,
+.math-copy ul,
+.math-copy ol,
+.math-copy pre,
+.math-copy blockquote {
+  margin-top: 0.5rem;
+}
+
+.math-copy ul,
+.math-copy ol {
+  padding-left: 1.25rem;
+}
+
+.math-copy ul {
+  list-style: disc;
+}
+
+.math-copy ol {
+  list-style: decimal;
+}
+
+.math-copy pre {
+  overflow-x: auto;
+}
