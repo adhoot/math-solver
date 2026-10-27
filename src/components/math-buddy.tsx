@@ -18,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { MathCopy } from "@/components/math-copy"
 import { PhotoCrop } from "@/components/photo-crop"
 import { SolveHistoryDialog } from "@/components/solve-history-dialog"
 import { Label } from "@/components/ui/label"
@@ -836,16 +837,17 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                               ? `Question ${solutionIndex + 1}`
                               : "From the photo"}
                           </p>
-                          <p className="leading-relaxed">{solution.question}</p>
+                          <MathCopy text={solution.question} paragraphClassName="leading-relaxed" />
                         </div>
                       ) : null}
                       <div className="rounded-xl bg-accent px-4 py-3">
                         <p className="text-sm font-semibold text-muted-foreground">
                           Answer
                         </p>
-                        <p className="font-heading text-2xl leading-snug text-foreground">
-                          {solution.answer}
-                        </p>
+                        <MathCopy
+                          text={solution.answer}
+                          paragraphClassName="font-heading text-2xl leading-snug text-foreground"
+                        />
                       </div>
                       <div className="flex flex-col gap-3">
                         <p className="text-sm font-semibold text-muted-foreground">
@@ -858,7 +860,11 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                                 <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
                                   {index + 1}
                                 </span>
-                                <p className="pt-0.5 leading-relaxed">{step}</p>
+                                <MathCopy
+                                  text={step}
+                                  className="pt-0.5"
+                                  paragraphClassName="leading-relaxed"
+                                />
                               </li>
                             ))}
                           </ol>
@@ -913,7 +919,7 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                         <p className="text-sm font-semibold text-muted-foreground">
                           Follow-up {index + 1}
                         </p>
-                        <p className="leading-relaxed">{reply}</p>
+                        <MathCopy text={reply} paragraphClassName="leading-relaxed" />
                       </div>
                     ))}
                   </form>
