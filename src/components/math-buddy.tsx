@@ -19,7 +19,6 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { MathCopy } from "@/components/math-copy"
-import { ModelCallLogList } from "@/components/model-call-log"
 import { PhotoCrop } from "@/components/photo-crop"
 import { SolveHistoryDialog } from "@/components/solve-history-dialog"
 import { Label } from "@/components/ui/label"
@@ -568,7 +567,6 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
     setFailure(null)
     setHistoryId(entry.id)
     setHistoryNote(null)
-    setHistoryOpen(false)
     setPhase("result")
   }
 
@@ -942,10 +940,6 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                 </Alert>
               ) : null}
 
-              {phase === "error" && calls.length > 0 ? (
-                <ModelCallLogList calls={calls} />
-              ) : null}
-
               {phase === "error" && failure && photo && failure.code !== "camera" ? (
                 <Button
                   type="button"
@@ -1103,7 +1097,6 @@ export function MathBuddy({ initialStatus }: { initialStatus: VisionStatus }) {
                       </div>
                     ))}
                   </form>
-                  <ModelCallLogList calls={calls} />
                 </div>
               ) : null}
 
