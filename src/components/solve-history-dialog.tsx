@@ -64,13 +64,13 @@ export function SolveHistoryDialog({
           </Button>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Saved on this device. Opening one shows the cropped photo, the
-          solution, and any follow-ups already asked.
+          Saved on this device. Opening one shows the cropped photo, the hint
+          or the solution, any follow-ups, and the model calls from that session.
         </p>
         {entries.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border px-4 py-8 text-sm leading-relaxed text-muted-foreground">
-            No saved solves yet. After you solve a photo, it stays here so you
-            can open it again.
+            No saved sessions yet. After you hint or solve a photo, it stays
+            here so you can open it again.
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
@@ -81,10 +81,11 @@ export function SolveHistoryDialog({
                 hour: "numeric",
                 minute: "2-digit",
               })
+              const modeLabel = entry.helpMode === "hint" ? "Hint" : "Solve"
               const solved =
                 entry.solveMode === "all"
-                  ? `All ${entry.questions.length} questions`
-                  : entry.solvedQuestions[0] || "One question"
+                  ? `${modeLabel} · all ${entry.questions.length} questions`
+                  : `${modeLabel} · ${entry.solvedQuestions[0] || "one question"}`
               return (
                 <li key={entry.id}>
                   <button
