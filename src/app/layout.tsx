@@ -16,7 +16,7 @@ const fraunces = Fraunces({
 export const metadata: Metadata = {
   title: "Math Buddy",
   description:
-    "Photograph a maths question and get a step-by-step answer that stays inside the selected course, from Algebra 1 through Multivariable Calculus.",
+    "Photograph a maths question. Hint gives one guiding question, or Solve gives the answer and the steps, inside the selected course from Algebra 1 through Multivariable Calculus.",
 }
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

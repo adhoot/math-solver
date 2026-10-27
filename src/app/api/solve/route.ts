@@ -1,7 +1,9 @@
 import { parseCourse } from "@/lib/course"
+import { helpModeFromForm } from "@/lib/model-call"
 import { readUploadedImage } from "@/lib/uploaded-image"
 import {
   MISSING_KEY_MESSAGE,
+  ModelReplyError,
   solveFromImage,
   visionStatus,
   type SolveSelection,
@@ -77,6 +79,11 @@ export async function POST(request: Request) {
     return jsonError(400, "bad_request", "Choose a math course before solving.")
   }
 
+  const helpMode = helpModeFromForm(formData.get("helpMode"))
+  if (!helpMode) {
+    return jsonError(400, "bad_request", "Choose Hint or Solve before running the photo.")
+  }
+
   const selection = readSelection(formData)
   if (typeof selection === "string") {
     return jsonError(400, "bad_request", selection)
@@ -92,6 +99,7 @@ export async function POST(request: Request) {
   try {
     const result = await solveFromImage({
       course,
+      helpMode,
       selection,
       ...uploaded.image,
     })
@@ -100,10 +108,11 @@ export async function POST(request: Request) {
     const message =
       error instanceof Error && error.message
         ? error.message
-        : "The vision model could not solve this photo."
+        : "The vision model could not finish this photo."
+    const call = error instanceof ModelReplyError ? error.call : undefined
     if (message === MISSING_KEY_MESSAGE) {
-      return jsonError(503, "missing_key", message)
+      return Response.json({ error: message, code: "missing_key", call }, { status: 503 })
     }
-    return jsonError(502, "model_error", message)
+    return Response.json({ error: message, code: "model_error", call }, { status: 502 })
   }
 }

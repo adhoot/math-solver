@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { ModelCallLogList } from "@/components/model-call-log"
 import { courseLabel } from "@/lib/course"
 import type { SavedSolve } from "@/lib/solve-history"
 import { Button } from "@/components/ui/button"
@@ -17,6 +18,13 @@ export function SolveHistoryDialog({
   onOpen: (entry: SavedSolve) => void
 }) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const [openedId, setOpenedId] = useState<string | null>(null)
+  const opened = entries.find((entry) => entry.id === openedId) ?? null
+
+  function close() {
+    setOpenedId(null)
+    onClose()
+  }
 
   useEffect(() => {
     if (!open) return
@@ -33,7 +41,9 @@ export function SolveHistoryDialog({
   useEffect(() => {
     if (!open) return
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose()
+      if (event.key !== "Escape") return
+      setOpenedId(null)
+      onClose()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -47,30 +57,61 @@ export function SolveHistoryDialog({
         type="button"
         aria-label="Close history"
         className="absolute inset-0 bg-foreground/40"
-        onClick={onClose}
+        onClick={close}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="history-title"
-        className="relative flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto bg-background p-4 shadow-xl"
+        className="relative flex h-full w-full max-w-xl flex-col gap-4 overflow-y-auto bg-background p-4 shadow-xl"
       >
         <div className="flex items-center justify-between gap-3">
           <h2 id="history-title" className="font-heading text-2xl">
             History
           </h2>
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={close}>
             Close
           </Button>
         </div>
+        {opened ? (
+          <div className="flex flex-col gap-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="self-start"
+              onClick={() => setOpenedId(null)}
+            >
+              All sessions
+            </Button>
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-semibold">{courseLabel(opened.course)}</p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {opened.helpMode === "hint" ? "Hint" : "Solve"}
+                {" · "}
+                {new Date(opened.updatedAt).toLocaleString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                The hint or the solution is on the page. These calls stay in
+                this history view.
+              </p>
+            </div>
+            <ModelCallLogList calls={opened.calls} />
+          </div>
+        ) : (
+          <>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Saved on this device. Opening one shows the cropped photo, the
-          solution, and any follow-ups already asked.
+          Saved on this device. Open a session to read its model calls. The
+          hint or the solution shows on the page.
         </p>
         {entries.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border px-4 py-8 text-sm leading-relaxed text-muted-foreground">
-            No saved solves yet. After you solve a photo, it stays here so you
-            can open it again.
+            No saved sessions yet. After you hint or solve a photo, it stays
+            here so you can open it again.
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
@@ -81,15 +122,19 @@ export function SolveHistoryDialog({
                 hour: "numeric",
                 minute: "2-digit",
               })
+              const modeLabel = entry.helpMode === "hint" ? "Hint" : "Solve"
               const solved =
                 entry.solveMode === "all"
-                  ? `All ${entry.questions.length} questions`
-                  : entry.solvedQuestions[0] || "One question"
+                  ? `${modeLabel} · all ${entry.questions.length} questions`
+                  : `${modeLabel} · ${entry.solvedQuestions[0] || "one question"}`
               return (
                 <li key={entry.id}>
                   <button
                     type="button"
-                    onClick={() => onOpen(entry)}
+                    onClick={() => {
+                      setOpenedId(entry.id)
+                      onOpen(entry)
+                    }}
                     className="flex w-full gap-3 rounded-xl border border-border p-3 text-left hover:bg-accent"
                   >
                     {thumbs[entry.id] ? (
@@ -117,6 +162,8 @@ export function SolveHistoryDialog({
               )
             })}
           </ul>
+        )}
+          </>
         )}
       </div>
     </div>

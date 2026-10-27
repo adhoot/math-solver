@@ -1,4 +1,5 @@
 import { parseCourse, type CourseId } from "@/lib/course"
+import { readModelCall, type HelpMode, type ModelCallLog } from "@/lib/model-call"
 import type { SolvedQuestion } from "@/lib/vision"
 
 const DB_NAME = "math-buddy"
@@ -15,10 +16,12 @@ export type SavedSolve = {
   image: Blob
   questions: string[]
   solveMode: SolveMode
+  helpMode: HelpMode
   chosenIndex: number
   solvedQuestions: string[]
   solutions: SolvedQuestion[]
   replies: string[]
+  calls: ModelCallLog[]
   provider: string
   model: string
 }
@@ -62,16 +65,20 @@ function readSaved(value: unknown): SavedSolve | null {
   const questions = value.questions.filter(
     (question): question is string => typeof question === "string",
   )
-  const solutions = value.solutions.filter(isRecord).map((solution) => ({
-    question: typeof solution.question === "string" ? solution.question : "",
-    answer: typeof solution.answer === "string" ? solution.answer : "",
-    steps: Array.isArray(solution.steps)
+  const solutions = value.solutions.filter(isRecord).flatMap((solution) => {
+    const question = typeof solution.question === "string" ? solution.question : ""
+    const answer = typeof solution.answer === "string" ? solution.answer : ""
+    const hint = typeof solution.hint === "string" ? solution.hint : ""
+    const steps = Array.isArray(solution.steps)
       ? solution.steps.filter((step): step is string => typeof step === "string")
-      : [],
-  }))
-  if (solutions.length === 0 || solutions.some((solution) => !solution.answer)) {
-    return null
-  }
+      : []
+    if (!answer && !hint) return []
+    return [{ question, answer, steps, hint }]
+  })
+  const helpMode: HelpMode = value.helpMode === "hint" ? "hint" : "solve"
+  if (solutions.length === 0) return null
+  if (helpMode === "hint" && solutions.some((solution) => !solution.hint)) return null
+  if (helpMode === "solve" && solutions.some((solution) => !solution.answer)) return null
   const solveMode: SolveMode = value.solveMode === "one" ? "one" : "all"
   const chosenIndex =
     typeof value.chosenIndex === "number" && value.chosenIndex >= 0
@@ -90,11 +97,18 @@ function readSaved(value: unknown): SavedSolve | null {
     image: value.image,
     questions,
     solveMode,
+    helpMode,
     chosenIndex,
     solvedQuestions,
     solutions,
     replies: Array.isArray(value.replies)
       ? value.replies.filter((reply): reply is string => typeof reply === "string")
+      : [],
+    calls: Array.isArray(value.calls)
+      ? value.calls.flatMap((call) => {
+          const parsed = readModelCall(call)
+          return parsed ? [parsed] : []
+        })
       : [],
     provider: typeof value.provider === "string" ? value.provider : "",
     model: typeof value.model === "string" ? value.model : "",
@@ -131,7 +145,11 @@ export async function saveSolve(input: NewSolve): Promise<SavedSolve> {
   return saved
 }
 
-export async function saveFollowUps(id: string, replies: string[]): Promise<void> {
+export async function saveFollowUps(
+  id: string,
+  replies: string[],
+  calls: ModelCallLog[],
+): Promise<void> {
   const db = await openDb()
   const store = db.transaction(STORE, "readwrite").objectStore(STORE)
   const existing = readSaved(await requestToPromise(store.get(id)))
@@ -140,6 +158,7 @@ export async function saveFollowUps(id: string, replies: string[]): Promise<void
     throw new Error("That saved solve is no longer on this device.")
   }
   existing.replies = replies
+  existing.calls = calls
   existing.updatedAt = Date.now()
   await requestToPromise(store.put(existing))
   db.close()
